@@ -1,35 +1,80 @@
-# ============ requirements.txt ============
-streamlit>=1.32
-folium>=0.15
-streamlit-folium>=0.18
-pystac-client>=0.7
-odc-stac>=0.9
-rioxarray>=0.15
-xarray>=2024.1
-numpy>=1.26
-geopandas>=0.14
-shapely>=2.0
-planetary-computer>=1.0   # firma de acceso a blobs de Copernicus en Planetary Computer
+# 🛰️ Sentinel-Alerta
 
-# ============ Estructura del repo ============
-# sentinel-alerta/
-# ├── app.py                    # app Streamlit (v0.2, piloto Bello)
-# ├── requirements.txt
-# ├── README.md
-# ├── LICENSE                   # MIT
-# ├── .gitignore                # venv, __pycache__, *.tif, *.geojson de trabajo
-# ├── .streamlit/
-# │   └── config.toml           # tema claro/oscuro, header
-# ├── data/
-# │   └── zonas.geojson         # zonas piloto (editable sin tocar código)
-# └── docs/
-#     ├── validacion_bello.md   # registro de validaciones de campo
-#     └── metodologia.md        # NDVI, NBR, umbrales, escalas EFFIS/USGS
-#
-# ============ .gitignore mínimo ============
-# .venv/
-# __pycache__/
-# *.tif
-# *.geojson
-# !data/zonas.geojson
-# .streamlit/secrets.toml
+**Detección temprana de quemas, deforestación e invasión de tierras en la periferia urbana — con imágenes satelitales abiertas de Copernicus.**
+
+Piloto: **municipio de Bello (Antioquia, Colombia)**. Escalable a cualquier municipio.
+
+## 🎯 El problema
+
+Las invasiones de terrenos en la periferia de los municipios colombianos siguen una secuencia predecible: **quema controlada → lotización → ocupación consolidada**. Cuando la ocupación es visible a simple vista, ya es irreversible en la práctica. Esta app detecta la **cicatriz de quema desde órbita, semanas antes** de que aparezca la primera estructura, dando a las administraciones una ventana de acción real (2–8 semanas).
+
+## 📡 Datos: 100% Copernicus (gratuitos y abiertos)
+
+
+| Fuente                              | Uso                                                          | Estado                   |
+| ----------------------------------- | ------------------------------------------------------------ | ------------------------ |
+| **Copernicus Sentinel-2 L2A** (ESA) | Bandas B04, B08, B12, SCL → NDVI, NBR/dNBR, máscara de nubes | ✅ Implementado           |
+| **Copernicus Sentinel-1** (SAR)     | Observación sin nubes ni humo, en temporada seca             | 🔜 Hito futuro           |
+| **Copernicus Land (CORINE)**        | Cobertura oficial para filtrar quemas agrícolas legítimas    | 🔜 Hito futuro           |
+| **EFFIS (referencia metodológica)** | Escala dNBR estándar para severidad de quema                 | ✅ Adoptada (umbral 0.27) |
+
+
+Los datos se obtienen vía la API STAC de Microsoft Planetary Computer, que distribuye el archivo de Copernicus **sin registro ni credenciales**.
+
+## 🧠 Cómo funciona
+
+```text
+Sentinel-2 (Copernicus) ──► Máscara de nubes (SCL)
+        │
+        ├─► NDVI (B08, B04) ──► deforestación (caída de NDVI)
+        │
+        └─► NBR  (B08, B12) ──► dNBR ──► 🔥 cicatriz de quema
+                                        │
+                                        └─► quema SIN rebrote del NDVI
+                                            = 🏠 invasión en curso
+```
+
+El detector actual (índices espectrales + lógica temporal) es la **línea base auditable**. La arquitectura admite sustituirlo por un modelo de segmentación (U-Net) entrenado con verdad de terreno de invasiones conocidas, sin cambiar el resto de la app.
+
+## ⚡ Instalación
+
+```bash
+git clone https://github.com/TU_USUARIO/sentinel-alerta.git
+cd sentinel-alerta
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## 🖥️ Uso
+
+1. Selecciona una zona (piloto: 4 zonas de Bello) o define tu bbox.
+2. Elige el modo: 🔥 quemas/invasión · 🪓 deforestación · 🏠 invasión consolidada.
+3. Compara dos fechas (sugerencia: inicio vs. fin de temporada seca, dic–mar).
+4. Revisa el semáforo de alerta y las hectáreas detectadas.
+5. Exporta el GeoJSON al GIS municipal (Planeación / catastro).
+
+## 🗺️ Hoja de ruta
+
+- [x] v0.2 — NDVI + NBR/dNBR, 3 modos, zonas de Bello
+- [ ] Validación de campo con Planeación de Bello
+- [ ] Serie temporal de rebrote (confirmación de invasión)
+- [ ] U-Net multiclase (bosque / quema / estructura informal)
+- [ ] Sentinel-1 (radar) para temporada de humo y nubes
+- [ ] Alertas programadas (correo / WhatsApp)
+- [ ] Despliegue en Hugging Face Spaces
+- [ ] Escalamiento: Valle de Aburrá → Colombia
+
+## 🤝 Contribuir
+
+Issues y PRs bienvenidos. Etiquetar invasiones verificadas en Bello (con soporte oficial) es la contribución más valiosa: alimenta el futuro modelo de IA.
+
+## ⚖️ Licencia y créditos
+
+- Código: **MIT**
+- Datos: © **Copernicus / ESA** (Sentinel-1/2), distribuidos vía Microsoft Planetary Computer
+- Escala dNBR: USGS / EFFIS
+
+## ⚠️ Aviso
+
+Las detecciones son **alertas tempranas de apoyo a decisión**, no prueba jurídica. Toda acción administrativa requiere verificación en campo y debido proceso.
