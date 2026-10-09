@@ -1,5 +1,9 @@
-LICENSE — MIT a tu nombre
-.gitignore
-.streamlit/config.toml — tema de la app
-data/zonas.geojson — las 4 zonas de Bello como datos editables
-docs/metodologia.md — umbrales dNBR, lógica de invasión, protocolo de campo
+.venv/  
+venv/  
+**pycache**/  
+\*.pyc  
+\*.tif  
+\*.geojson  
+!data/zonas.geojson  
+.streamlit/secrets.toml  
+.DS\_Store
