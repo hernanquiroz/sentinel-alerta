@@ -13,6 +13,7 @@ import pystac_client
 import planetary_computer
 import rasterio
 from rasterio.windows import from_bounds
+import rasterio.windows
 import datetime as dt
 import json
 
@@ -52,6 +53,10 @@ def nbr_np(nir, swir):
 def leer_banda(href, bbox, escara=0.0001):
     with rasterio.open(href) as src:
         win = from_bounds(bbox[1], bbox[0], bbox[3], bbox[2], src.transform)
+        # Ventana robusta: si el redondeo da 0 filas/columnas, ampliamos 1 px
+        if win.width < 1 or win.height < 1:
+            win = rasterio.windows.Window(win.col_off - 1, win.row_off - 1,
+                                          max(win.width, 2), max(win.height, 2))
         banda = src.read(1, window=win).astype("float32")
         nodata = src.nodata
         if nodata is not None:
@@ -164,6 +169,10 @@ if analizar:
 
     h = min(bandas["pre"]["B04"].shape[0], bandas["post"]["B04"].shape[0])
     w = min(bandas["pre"]["B04"].shape[1], bandas["post"]["B04"].shape[1])
+    if h < 2 or w < 2:
+        st.error("El recorte de la escena quedó vacío. Prueba un bbox más "
+                 "grande o fechas distintas (la escena puede no cubrir la zona).")
+        st.stop()
     for c in bandas:
         for b in bandas[c]:
             bandas[c][b] = bandas[c][b][:h, :w]
@@ -225,15 +234,25 @@ if analizar:
 
     with t1:
         st.markdown(leyenda)
-        rojo = np.zeros((*alerta.shape, 3), dtype=np.uint8)
-        rojo[..., 0] = (alerta * 255).astype(np.uint8)
-        st.image(rojo, use_container_width=True)
+        if n_alerta == 0:
+            st.info("Sin píxeles en alerta con este umbral. Prueba bajar el "
+                    "umbral de sensibilidad o comparar otras fechas.")
+        else:
+            rojo = np.zeros((*alerta.shape, 3), dtype=np.uint8)
+            rojo[..., 0] = (alerta * 255).astype(np.uint8)
+            st.image(rojo, use_container_width=True)
     with t2:
-        st.image(a_img(nd_pre), caption="NDVI antes", use_container_width=True)
-        st.image(a_img(nd_post), caption="NDVI después", use_container_width=True)
+        if nd_pre.size == 0:
+            st.info("Sin datos NDVI para mostrar.")
+        else:
+            st.image(a_img(nd_pre), caption="NDVI antes", use_container_width=True)
+            st.image(a_img(nd_post), caption="NDVI después", use_container_width=True)
     with t3:
-        st.image(a_img(nb_pre), caption="NBR antes", use_container_width=True)
-        st.image(a_img(nb_post), caption="NBR después", use_container_width=True)
+        if nb_pre.size == 0:
+            st.info("Sin datos NBR para mostrar.")
+        else:
+            st.image(a_img(nb_pre), caption="NBR antes", use_container_width=True)
+            st.image(a_img(nb_post), caption="NBR después", use_container_width=True)
 
     if st.button("⬇️ Exportar detección (GeoJSON)"):
         ys, xs = np.where(alerta)
