@@ -1,20 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-SENTINEL-ALERTA v0.3 · Detección temprana: deforestación, quemas e invasión
-============================================================================
-Piloto: municipio de Bello (Antioquia) y su anillo periurbano.
-
-v0.3: sin odc-stac/rioxarray (incompatibles con Python 3.14 de Streamlit
-Cloud). Carga las bandas de Copernicus Sentinel-2 L2A con rasterio + pystac
-+ planetary_computer (firmas SAS), directamente en arrays NumPy.
-
-Datos:
-  - Copernicus / ESA Sentinel-2 L2A vía Microsoft Planetary Computer STAC
-Instalación:
-  pip install -r requirements.txt
-Ejecución:
-  streamlit run app.py
-"""
+# SENTINEL-ALERTA v0.3.1 · Quemas, deforestacion e invasion de tierras
+# Piloto: municipio de Bello (Antioquia). Datos: Copernicus Sentinel-2 L2A
+# via Microsoft Planetary Computer. Nota: sin comillas triples para evitar
+# errores de copy/paste. Ejecutar con: streamlit run app.py
 
 import streamlit as st
 import folium
@@ -25,11 +13,13 @@ import pystac_client
 import planetary_computer
 import rasterio
 from rasterio.windows import from_bounds
+import datetime as dt
+import json
 
 st.set_page_config(page_title="Sentinel-Alerta", page_icon="🛰️", layout="wide")
 
 STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
-COLECCION = "sentinel-2-l2a"  # Copernicus/ESA, L2A (reflectancia de superficie)
+COLECCION = "sentinel-2-l2a"
 
 ZONAS = {
     "Bello – anillo periurbano completo (piloto)": (6.27, -75.62, 6.45, -75.50),
@@ -46,49 +36,31 @@ MODOS = {
     "🏠 Invasión consolidada (NDVI + estructuras)": "invasion",
 }
 
-# ----------------------------------------------------------------------------
-# Índices y detección (NumPy puro, sin xarray)
-# ----------------------------------------------------------------------------
+
 def ndvi_np(nir, red):
-    nir = nir.astype("float32"); red = red.astype("float32")
+    nir = nir.astype("float32")
+    red = red.astype("float32")
     return (nir - red) / (nir + red + 1e-6)
 
 
 def nbr_np(nir, swir):
-    nir = nir.astype("float32"); swir = swir.astype("float32")
+    nir = nir.astype("float32")
+    swir = swir.astype("float32")
     return (nir - swir) / (nir + swir + 1e-6)
 
 
 def leer_banda(href, bbox, escara=0.0001):
-    """Lee la banda COG (URL firmada) recortada al bbox, en EPSG:4326."""
     with rasterio.open(href) as src:
         win = from_bounds(bbox[1], bbox[0], bbox[3], bbox[2], src.transform)
         banda = src.read(1, window=win).astype("float32")
         nodata = src.nodata
         if nodata is not None:
             banda = np.where(banda == nodata, np.nan, banda)
-        return banda * escara  # L2A viene escalado por 10000
+        return banda * escara
 
 
-def escoger_item(items, bbox):
-    """Escoge la escena con mayor cobertura del bbox y menos nubes."""
-    def puntaje(it):
-        try:
-            g = it.geometry
-            cov = min(g.bounds[2], bbox[3]) - max(g.bounds[0], bbox[1])
-            nub = it.properties.get("s2:mgrs_tile") and it.properties.get(
-                "eo:cloud_cover", 100)
-            return -float(nub)
-        except Exception:
-            return -100.0
-    return sorted(items, key=puntaje)[0]
-
-
-# ----------------------------------------------------------------------------
-# UI
-# ----------------------------------------------------------------------------
 st.title("🛰️ Sentinel-Alerta · Bello piloto")
-st.caption("Copernicus Sentinel-2 · Quemas predictoras de invasión · Deforestación · Open source")
+st.caption("Copernicus Sentinel-2 · Quemas predictoras de invasión · Open source")
 
 with st.sidebar:
     st.header("1️⃣ Zona")
@@ -132,26 +104,19 @@ with col_map:
 
 with col_info:
     st.subheader("Lógica anticipatoria de invasión")
-    st.markdown(
-        """
-        **Secuencia típica de una invasión en la periferia:**
-
-        1. 🌿 Terreno con vegetación o rastrojo
-        2. 🔥 **Quema controlada** ← *visible en el satélite*
-        3. 🏚️ Lotes marcados y primeras estructuras
-        4. 🏘️ Ocupación consolidada (irreversible en la práctica)
-
-        El detector actúa en el **paso 2**: cicatriz de quema (dNBR) antes
-        de que haya ocupación. Ventana de acción: **2–8 semanas**.
-
-        *Confirmación:* quema + NDVI que no rebrota en los meses siguientes
-        (el bosque se recupera; un lote ocupado, no).
-        """
+    texto_info = (
+        "**Secuencia típica de una invasión en la periferia:**\n\n"
+        "1. 🌿 Terreno con vegetación o rastrojo\n"
+        "2. 🔥 **Quema controlada** ← *visible en el satélite*\n"
+        "3. 🏚️ Lotes marcados y primeras estructuras\n"
+        "4. 🏘️ Ocupación consolidada (irreversible en la práctica)\n\n"
+        "El detector actúa en el **paso 2**: cicatriz de quema (dNBR) "
+        "antes de que haya ocupación. Ventana de acción: **2–8 semanas**.\n\n"
+        "*Confirmación:* quema + NDVI que no rebrota en los meses "
+        "siguientes (el bosque se recupera; un lote ocupado, no)."
     )
+    st.markdown(texto_info)
 
-# ----------------------------------------------------------------------------
-# Procesamiento
-# ----------------------------------------------------------------------------
 if analizar:
     if fecha_pre is None or fecha_post is None or fecha_post <= fecha_pre:
         st.error("Selecciona dos fechas válidas (la reciente posterior a la base).")
@@ -160,7 +125,6 @@ if analizar:
     st.info("Buscando imágenes Sentinel-2 (Copernicus)…")
     catalog = pystac_client.Client.open(STAC_URL,
                                         modifier=planetary_computer.sign_inplace)
-    import datetime as _dt
 
     def buscar(fecha):
         q = catalog.search(collections=[COLECCION],
@@ -169,9 +133,9 @@ if analizar:
         return list(q.items())
 
     items_pre, items_post = [], []
-    for off in range(7):  # tolerancia ±6 días por nubes
-        f1 = fecha_pre + _dt.timedelta(days=off)
-        f2 = fecha_post - _dt.timedelta(days=off)
+    for off in range(7):
+        f1 = fecha_pre + dt.timedelta(days=off)
+        f2 = fecha_post - dt.timedelta(days=off)
         items_pre = items_pre or buscar(f1)
         items_post = items_post or buscar(f2)
         if items_pre and items_post:
@@ -180,32 +144,24 @@ if analizar:
         st.error("Sin imágenes Sentinel-2 en esas fechas. Prueba otras fechas.")
         st.stop()
 
-    item_pre, item_post = escoger_item(items_pre, roi), escoger_item(items_post, roi)
+    item_pre = min(items_pre, key=lambda it: it.properties.get("eo:cloud_cover", 100))
+    item_post = min(items_post, key=lambda it: it.properties.get("eo:cloud_cover", 100))
 
     st.info("Descargando bandas B04, B08, B12, SCL…")
     try:
         bandas = {}
         for clave, item in (("pre", item_pre), ("post", item_post)):
-            item = planetary_computer.sign(item)
+            firmado = planetary_computer.sign(item)
             bandas[clave] = {
-                "B04": leer_banda(item.assets["B04"].href, roi),
-                "B08": leer_banda(item.assets["B08"].href, roi),
-                "B12": leer_banda(item.assets["B12"].href, roi),
-                "SCL": leer_banda(item.assets["SCL"].href, roi, escara=1.0),
+                "B04": leer_banda(firmado.assets["B04"].href, roi),
+                "B08": leer_banda(firmado.assets["B08"].href, roi),
+                "B12": leer_banda(firmado.assets["B12"].href, roi),
+                "SCL": leer_banda(firmado.assets["SCL"].href, roi, escara=1.0),
             }
     except Exception as e:
-        st.error(f"Error descargando bandas: {e}")
+        st.error("Error descargando bandas: " + str(e))
         st.stop()
 
-    # Verificar misma resolución entre fechas
-    def forma_ok(b):
-        return (b["B04"].shape == b["B08"].shape)
-
-    if not (forma_ok(bandas["pre"]) and forma_ok(bandas["post"])):
-        st.error("Las escenas tienen resoluciones distintas; recorta el bbox o cambia fechas.")
-        st.stop()
-
-    # Alinear formas por si difieren (recorte al mínimo común)
     h = min(bandas["pre"]["B04"].shape[0], bandas["post"]["B04"].shape[0])
     w = min(bandas["pre"]["B04"].shape[1], bandas["post"]["B04"].shape[1])
     for c in bandas:
@@ -214,16 +170,19 @@ if analizar:
 
     def con_nubes(c):
         scl = bandas[c]["SCL"]
-        nubes = np.isin(scl, [3, 8, 9, 10])  # sombra, nube media/alta, cirrus
-        banda = bandas[c].copy()
+        nubes = np.isin(scl, [3, 8, 9, 10])
+        salida = {}
         for b in ("B04", "B08", "B12"):
-            banda[b] = np.where(nubes | np.isnan(banda[b]), np.nan, banda[b])
-        return banda
+            arr = bandas[c][b]
+            salida[b] = np.where(nubes | np.isnan(arr), np.nan, arr)
+        return salida
 
     pre, post = con_nubes("pre"), con_nubes("post")
 
-    nd_pre, nd_post = ndvi_np(pre["B08"], pre["B04"]), ndvi_np(post["B08"], post["B04"])
-    nb_pre, nb_post = nbr_np(pre["B08"], pre["B12"]), nbr_np(post["B08"], post["B12"])
+    nd_pre = ndvi_np(pre["B08"], pre["B04"])
+    nd_post = ndvi_np(post["B08"], post["B04"])
+    nb_pre = nbr_np(pre["B08"], pre["B12"])
+    nb_post = nbr_np(post["B08"], post["B12"])
 
     if MODOS[modo] == "quemas":
         alerta = (nb_pre - nb_post) > umbral
@@ -239,13 +198,12 @@ if analizar:
 
     alerta = np.nan_to_num(alerta.astype("float32"), nan=0.0).astype(bool)
 
-    # Resolución: aproximar el tamaño de píxel desde el bbox y el ancho
-    lado_m = ((roi[3] - roi[1]) * 111_320 / w) if w else 10.0
-    ha_px = (max(lado_m, 5.0) ** 2) / 10_000
+    lado_m = ((roi[3] - roi[1]) * 111320.0 / w) if w else 10.0
+    ha_px = (max(lado_m, 5.0) ** 2) / 10000.0
     n_alerta = int(alerta.sum())
     ha_alerta = n_alerta * ha_px
 
-    st.success(f"✅ {ha_alerta:,.2f} ha detectadas · {n_alerta:,} píxeles")
+    st.success("✅ " + f"{ha_alerta:,.2f}" + " ha detectadas · " + f"{n_alerta:,}" + " píxeles")
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Área detectada (aprox.)", f"{ha_alerta:,.2f} ha")
@@ -259,7 +217,7 @@ if analizar:
 
     t1, t2, t3 = st.tabs(["🗺️ Detección", "🌿 NDVI antes/después", "🔥 NBR antes/después"])
 
-    def a_img(arr, vmin=-1, vmax=1):
+    def a_img(arr, vmin=-1.0, vmax=1.0):
         x = (arr - vmin) / (vmax - vmin)
         x = np.clip(np.nan_to_num(x, nan=0.0), 0, 1)
         g = (x * 255).astype(np.uint8)
@@ -277,13 +235,12 @@ if analizar:
         st.image(a_img(nb_pre), caption="NBR antes", use_container_width=True)
         st.image(a_img(nb_post), caption="NBR después", use_container_width=True)
 
-    # Exportar GeoJSON (sin geopandas: generación manual)
     if st.button("⬇️ Exportar detección (GeoJSON)"):
         ys, xs = np.where(alerta)
         if len(ys) == 0:
             st.info("Sin píxeles en alerta con este umbral.")
         else:
-            paso = 10  # celdas ~10 píxeles para reducir tamaño
+            paso = 10
             lon0, lat1 = roi[1], roi[2]
             dlon = (roi[3] - roi[1]) / alerta.shape[1]
             dlat = (roi[2] - roi[0]) / alerta.shape[0]
@@ -302,12 +259,10 @@ if analizar:
                                                    [x1, yb], [x0, yb], [x0, ya]]]},
                 })
             gj = {"type": "FeatureCollection", "features": feats}
-            import json
             st.download_button("Descargar GeoJSON", json.dumps(gj),
-                               file_name=f"alerta_{MODOS[modo]}_bello.geojson",
+                               file_name="alerta_" + MODOS[modo] + "_bello.geojson",
                                mime="application/geo+json")
 
 st.divider()
-st.caption("Sentinel-Alerta v0.3 · Datos © Copernicus/ESA (Sentinel-2) vía Microsoft "
-           "Planetary Computer · MIT · Siguiente: U-Net multiclase + alertas "
-           "programadas para Planeación de Bello.")
+st.caption("Sentinel-Alerta v0.3.1 · Datos © Copernicus/ESA (Sentinel-2) vía "
+           "Microsoft Planetary Computer · MIT")
