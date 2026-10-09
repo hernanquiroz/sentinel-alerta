@@ -1,0 +1,35 @@
+# ============ requirements.txt ============
+streamlit>=1.32
+folium>=0.15
+streamlit-folium>=0.18
+pystac-client>=0.7
+odc-stac>=0.9
+rioxarray>=0.15
+xarray>=2024.1
+numpy>=1.26
+geopandas>=0.14
+shapely>=2.0
+planetary-computer>=1.0   # firma de acceso a blobs de Copernicus en Planetary Computer
+
+# ============ Estructura del repo ============
+# sentinel-alerta/
+# ├── app.py                    # app Streamlit (v0.2, piloto Bello)
+# ├── requirements.txt
+# ├── README.md
+# ├── LICENSE                   # MIT
+# ├── .gitignore                # venv, __pycache__, *.tif, *.geojson de trabajo
+# ├── .streamlit/
+# │   └── config.toml           # tema claro/oscuro, header
+# ├── data/
+# │   └── zonas.geojson         # zonas piloto (editable sin tocar código)
+# └── docs/
+#     ├── validacion_bello.md   # registro de validaciones de campo
+#     └── metodologia.md        # NDVI, NBR, umbrales, escalas EFFIS/USGS
+#
+# ============ .gitignore mínimo ============
+# .venv/
+# __pycache__/
+# *.tif
+# *.geojson
+# !data/zonas.geojson
+# .streamlit/secrets.toml
