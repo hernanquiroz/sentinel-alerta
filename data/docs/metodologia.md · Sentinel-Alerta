@@ -1,0 +1,35 @@
+# Metodología · Sentinel-Alerta
+
+## Índices utilizados
+
+- **NDVI** = (B08 − B04) / (B08 + B04) — vigor de vegetación.
+- **NBR** = (B08 − B12) / (B08 + B12) — sensible a cicatrices de quema.
+- **dNBR** = NBR\_antes − NBR\_después.
+
+## Umbrales de severidad de quema (escala USGS / EFFIS)
+
+
+| dNBR      | Severidad       |
+| --------- | --------------- |
+| &lt; 0.10 | Sin quema       |
+| 0.10–0.27 | Quemado bajo    |
+| 0.27–0.66 | Moderado–severo |
+| &gt; 0.66 | Severo extremo  |
+
+
+## Lógica de invasión
+
+1. dNBR &gt; umbral → cicatriz de quema.
+2. NDVI no se recupera en los meses siguientes → ocupación en curso  
+ (la vegetación natural rebrota; un lote ocupado no).
+
+## Falsos positivos esperados y mitigación
+
+- Quema agrícola legítima → mitigar con CORINE Land Cover (hito futuro).
+- Nubes residuales → máscara SCL aplicada a ambas fechas.
+- Cambios de cultivo → revisión de campo antes de acción administrativa.
+
+## Verificación en campo (protocolo mínimo)
+
+Para cada alerta: coordenada del centroide, foto, fecha, estado del  
+terreno (quemado/ocupado/vegetación), y registro de la acción tomada.
